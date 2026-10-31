@@ -23,7 +23,7 @@ The **Flight settings** dropdown also lets you change the panel hotkey. The defa
 
 The route is loaded into the GeoFS flight planner with:
 
-- Configurable cruising altitude from 24,000 to 45,000 feet
+- Configurable cruising altitude from 20,000 to 80,000 feet
 - Realistic climb steps based on the selected cruising altitude
 - A `TOC` waypoint at the selected cruising altitude
 - A `TOD` waypoint before descent

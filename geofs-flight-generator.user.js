@@ -114,7 +114,7 @@
                         </div>
                         <div class="gfg-field" id="gfg-custom-altitude-field" hidden>
                             <label for="gfg-custom-altitude">Custom cruising altitude (ft)</label>
-                            <input id="gfg-custom-altitude" type="number" min="24000" max="45000" step="1000" value="35000">
+                            <input id="gfg-custom-altitude" type="number" min="20000" max="80000" step="1000" value="35000">
                         </div>
                         <div class="gfg-field">
                             <label for="gfg-hotkey">Panel hotkey</label>
@@ -172,8 +172,8 @@
             throw new Error("Enter valid 3- or 4-character ICAO airport codes.");
         }
         if (departure === arrival) throw new Error("Departure and arrival must be different.");
-        if (!Number.isInteger(cruiseAltitude) || cruiseAltitude < 24000 || cruiseAltitude > 45000 || cruiseAltitude % 1000 !== 0) {
-            throw new Error("Cruising altitude must be a whole flight level from 24,000 to 45,000 feet.");
+        if (!Number.isInteger(cruiseAltitude) || cruiseAltitude < 20000 || cruiseAltitude > 80000 || cruiseAltitude % 1000 !== 0) {
+            throw new Error("Cruising altitude must be a whole flight level from 20,000 to 80,000 feet.");
         }
         const start = geofs.mainAirportList[departure];
         const end = geofs.mainAirportList[arrival];
