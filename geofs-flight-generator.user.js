@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GeoFS Flight Generator
 // @namespace    https://example.invalid/geofs-flight-generator
-// @version      1.1.0
+// @version      1.2.0
 // @description  Generate and load a GeoFS-compatible flight plan between two airports.
 // @author       tamsam
 // @match        https://www.geo-fs.com/geofs.php*
