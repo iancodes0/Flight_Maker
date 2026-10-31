@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GeoFS Flight Generator
 // @namespace    https://example.invalid/geofs-flight-generator
-// @version      1.0.0
+// @version      1.1.0
 // @description  Generate and load a GeoFS-compatible flight plan between two airports.
 // @author       tamsam
 // @match        https://www.geo-fs.com/geofs.php*
@@ -51,6 +51,12 @@
             }
             #${PANEL_ID} input:focus { border-color: #69b5ff; box-shadow: 0 0 0 2px #4ba8ff2b; }
             #${PANEL_ID} .gfg-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+            #${PANEL_ID} details { margin: 0 0 13px; border: 1px solid #2f4d6c; border-radius: 6px; background: #102238; }
+            #${PANEL_ID} summary { padding: 9px 10px; color: #bcd4ee; cursor: pointer; font-size: 11px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; }
+            #${PANEL_ID} .gfg-settings { padding: 0 10px 3px; border-top: 1px solid #2f4d6c; }
+            #${PANEL_ID} select { box-sizing: border-box; width: 100%; padding: 9px 10px; color: #fff; background: #091525; border: 1px solid #426181; border-radius: 6px; }
+            #${PANEL_ID} .gfg-settings .gfg-field { margin: 11px 0; }
+            #${PANEL_ID} .gfg-settings .gfg-field:last-child { margin-bottom: 8px; }
             #${PANEL_ID} button {
                 width: 100%; margin-top: 4px; padding: 10px; color: #fff;
                 background: linear-gradient(180deg, #3e9be3, #2070b8);
@@ -93,6 +99,29 @@
                     <label for="gfg-callsign">Callsign <span>(optional)</span></label>
                     <input id="gfg-callsign" placeholder="UAL123" autocomplete="off">
                 </div>
+                <details>
+                    <summary>Flight settings</summary>
+                    <div class="gfg-settings">
+                        <div class="gfg-field">
+                            <label for="gfg-cruise-preset">Cruising altitude</label>
+                            <select id="gfg-cruise-preset">
+                                <option value="25000">25,000 ft</option>
+                                <option value="30000">30,000 ft</option>
+                                <option value="35000" selected>35,000 ft</option>
+                                <option value="39000">39,000 ft</option>
+                                <option value="custom">Custom altitude</option>
+                            </select>
+                        </div>
+                        <div class="gfg-field" id="gfg-custom-altitude-field" hidden>
+                            <label for="gfg-custom-altitude">Custom cruising altitude (ft)</label>
+                            <input id="gfg-custom-altitude" type="number" min="24000" max="45000" step="1000" value="35000">
+                        </div>
+                        <div class="gfg-field">
+                            <label for="gfg-hotkey">Panel hotkey</label>
+                            <input id="gfg-hotkey" maxlength="1" value="K" autocomplete="off">
+                        </div>
+                    </div>
+                </details>
                 <button id="gfg-generate">Generate and load flight</button>
                 <div id="gfg-status" role="status"></div>
                 <div class="gfg-note">A direct route with intermediate waypoints and labeled TOC/TOD markers will be loaded into GeoFS.</div>
@@ -101,6 +130,25 @@
         document.body.appendChild(panel);
 
         const status = panel.querySelector("#gfg-status");
+        const cruisePreset = panel.querySelector("#gfg-cruise-preset");
+        const customAltitudeField = panel.querySelector("#gfg-custom-altitude-field");
+        const customAltitude = panel.querySelector("#gfg-custom-altitude");
+        const hotkeyInput = panel.querySelector("#gfg-hotkey");
+        const savedHotkey = localStorage.getItem("gfg-hotkey");
+        if (savedHotkey) hotkeyInput.value = savedHotkey;
+        cruisePreset.addEventListener("change", () => {
+            customAltitudeField.hidden = cruisePreset.value !== "custom";
+        });
+        hotkeyInput.addEventListener("input", () => {
+            hotkeyInput.value = hotkeyInput.value.slice(-1).toUpperCase();
+            if (hotkeyInput.value) localStorage.setItem("gfg-hotkey", hotkeyInput.value);
+        });
+        document.addEventListener("keydown", (event) => {
+            const target = event.target;
+            if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) return;
+            if (event.key.toUpperCase() !== (hotkeyInput.value || "K").toUpperCase()) return;
+            panel.hidden = !panel.hidden;
+        });
 
         panel.querySelector("#gfg-generate").addEventListener("click", () => {
             try {
@@ -108,7 +156,9 @@
                 const arrival = panel.querySelector("#gfg-arrival").value.trim().toUpperCase();
                 const aircraft = panel.querySelector("#gfg-aircraft").value.trim();
                 const callsign = panel.querySelector("#gfg-callsign").value.trim();
-                const plan = buildPlan(departure, arrival, aircraft, callsign);
+                const cruiseValue = cruisePreset.value === "custom" ? customAltitude.value : cruisePreset.value;
+                const cruiseAltitude = Number(cruiseValue);
+                const plan = buildPlan(departure, arrival, aircraft, callsign, cruiseAltitude);
                 geofs.flightPlan.import(plan);
                 status.textContent = `Flight loaded • ${plan.nodes.length} waypoints`;
             } catch (error) {
@@ -117,11 +167,14 @@
         });
     }
 
-    function buildPlan(departure, arrival, aircraft, callsign) {
+    function buildPlan(departure, arrival, aircraft, callsign, cruiseAltitude) {
         if (!/^[A-Z0-9]{3,4}$/.test(departure) || !/^[A-Z0-9]{3,4}$/.test(arrival)) {
             throw new Error("Enter valid 3- or 4-character ICAO airport codes.");
         }
         if (departure === arrival) throw new Error("Departure and arrival must be different.");
+        if (!Number.isInteger(cruiseAltitude) || cruiseAltitude < 24000 || cruiseAltitude > 45000 || cruiseAltitude % 1000 !== 0) {
+            throw new Error("Cruising altitude must be a whole flight level from 24,000 to 45,000 feet.");
+        }
         const start = geofs.mainAirportList[departure];
         const end = geofs.mainAirportList[arrival];
         if (!start) throw new Error(`Departure airport ${departure} was not found in GeoFS.`);
@@ -129,7 +182,6 @@
 
         const distance = greatCircleDistance(start, end);
         const intermediateCount = Math.max(0, Math.min(30, Math.ceil(distance / 100) - 1));
-        const cruiseAltitude = 35000;
         const nodes = [{ ident: departure, type: "DPT", lat: start[0], lon: start[1], alt: 0 }];
         const tocFraction = 0.18;
         const todFraction = 0.82;
@@ -137,9 +189,9 @@
             const point = greatCirclePoint(start, end, fraction);
             nodes.push({ ident, type: "FIX", lat: point[0], lon: point[1], alt: altitude });
         };
-        addRoutePoint("CLB1", 0.04, 10000);
-        addRoutePoint("CLB2", 0.09, 18000);
-        addRoutePoint("CLB3", 0.14, 26000);
+        addRoutePoint("CLB1", 0.04, Math.round(cruiseAltitude * 0.30 / 1000) * 1000);
+        addRoutePoint("CLB2", 0.09, Math.round(cruiseAltitude * 0.55 / 1000) * 1000);
+        addRoutePoint("CLB3", 0.14, Math.round(cruiseAltitude * 0.75 / 1000) * 1000);
         const tocPoint = greatCirclePoint(start, end, tocFraction);
         const todPoint = greatCirclePoint(start, end, todFraction);
         nodes.push({ ident: "TOC", type: "FIX", lat: tocPoint[0], lon: tocPoint[1], alt: cruiseAltitude });
@@ -156,9 +208,9 @@
             });
         }
         nodes.push({ ident: "TOD", type: "FIX", lat: todPoint[0], lon: todPoint[1], alt: cruiseAltitude });
-        addRoutePoint("DES1", 0.87, 26000);
-        addRoutePoint("DES2", 0.92, 18000);
-        addRoutePoint("DES3", 0.97, 10000);
+        addRoutePoint("DES1", 0.87, Math.round(cruiseAltitude * 0.75 / 1000) * 1000);
+        addRoutePoint("DES2", 0.92, Math.round(cruiseAltitude * 0.55 / 1000) * 1000);
+        addRoutePoint("DES3", 0.97, Math.round(cruiseAltitude * 0.30 / 1000) * 1000);
         nodes.push({ ident: arrival, type: "DST", lat: end[0], lon: end[1], alt: 0 });
         return {
             nodes,

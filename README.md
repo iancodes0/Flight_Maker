@@ -16,13 +16,17 @@
 3. Enter the arrival airport's ICAO code, such as `KLAX`.
 4. Enter the aircraft name.
 5. Enter a callsign if needed.
-6. Select **Generate and load flight**.
+6. Open **Flight settings** if you want to choose a different cruising altitude.
+7. Select **Generate and load flight**.
+
+The **Flight settings** dropdown also lets you change the panel hotkey. The default hotkey is `K`. Press it while GeoFS has focus to hide or show the flight planner. The hotkey does not toggle the panel while typing in a field.
 
 The route is loaded into the GeoFS flight planner with:
 
-- Climb steps at 10,000, 18,000, and 26,000 feet
-- A `TOC` waypoint at 35,000 feet
+- Configurable cruising altitude from 24,000 to 45,000 feet
+- Realistic climb steps based on the selected cruising altitude
+- A `TOC` waypoint at the selected cruising altitude
 - A `TOD` waypoint before descent
-- Descent steps at 26,000, 18,000, and 10,000 feet
+- Descent steps based on the selected cruising altitude
 
 Reload GeoFS after updating the userscript in Tampermonkey.
