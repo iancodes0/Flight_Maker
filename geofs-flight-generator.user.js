@@ -75,6 +75,7 @@
 
     function makePanel() {
         if (document.getElementById(PANEL_ID)) return;
+        if (geofs.nav && typeof geofs.nav.loadFixes === "function") geofs.nav.loadFixes();
         const settings = readSettings();
         const panel = document.createElement("section");
         panel.id = PANEL_ID;
@@ -143,7 +144,7 @@
                 });
                 geofs.flightPlan.import(plan);
                 lastPlan = plan;
-                status.textContent = `Flight loaded - ${plan.nodes.length} waypoints`;
+                status.textContent = `Flight loaded - ${plan.route || "DCT"} - ${plan.nodes.length} waypoints`;
             } catch (error) { status.textContent = error instanceof Error ? error.message : "Could not generate the flight."; }
         });
         $("gfg-copy").addEventListener("click", async () => {
@@ -179,7 +180,7 @@
                 }
                 geofs.flightPlan.import(plan);
                 lastPlan = plan;
-                status.textContent = `Shared flight loaded - ${plan.nodes.length} waypoints`;
+                status.textContent = `Shared flight loaded - ${plan.route || "DCT"} - ${plan.nodes.length} waypoints`;
             } catch (error) {
                 status.textContent = error instanceof Error ? error.message : "Could not load shared JSON.";
             }
@@ -208,19 +209,87 @@
         const tocFraction = Math.max(.05, Math.min(.45, climbFraction));
         const todFraction = Math.min(.95, Math.max(tocFraction + .1, 1 - descentFraction));
         const nodes = [{ ident: departure, type: "DPT", lat: start[0], lon: start[1], alt: 0 }];
-        const addPoint = (ident, fraction, altitude) => { const point = greatCirclePoint(start, end, fraction); if (!nodes.some((node) => greatCircleDistance([node.lat, node.lon], point) < 10)) nodes.push({ ident, type: "FIX", lat: point[0], lon: point[1], alt: altitude }); };
-        addPoint("CLB1", tocFraction * .3, Math.round(cruiseAltitude * .3 / 1000) * 1000);
-        addPoint("CLB2", tocFraction * .65, Math.round(cruiseAltitude * .65 / 1000) * 1000);
-        addPoint("CLB3", tocFraction, cruiseAltitude);
+        const fixes = getGeoFSFixes(departure, arrival);
+        const usedFixes = new Set();
+        const addPoint = (ident, fraction, altitude, type = "FIX") => {
+            const point = greatCirclePoint(start, end, fraction);
+            if (!nodes.some((node) => greatCircleDistance([node.lat, node.lon], point) < 10)) nodes.push({ ident, type, lat: point[0], lon: point[1], alt: altitude });
+        };
+        const addNearestFix = (fraction, altitude) => {
+            const point = greatCirclePoint(start, end, fraction);
+            const fix = nearestRouteFix(fixes, start, end, point, usedFixes);
+            if (fix) {
+                usedFixes.add(fix.ident);
+                nodes.push({ ident: fix.ident, type: "FIX", lat: fix.lat, lon: fix.lon, alt: altitude });
+            }
+        };
+        addNearestFix(tocFraction * .3, Math.round(cruiseAltitude * .3 / 1000) * 1000);
+        addNearestFix(tocFraction * .65, Math.round(cruiseAltitude * .65 / 1000) * 1000);
+        addPoint("TOC", tocFraction, cruiseAltitude, "TOC");
         if (options.mode === "structured") {
             const count = Math.min(30, Math.max(0, Math.ceil(distance / 100) - 1));
-            for (let index = 1; index <= count; index += 1) { const fraction = index / (count + 1); if (fraction > tocFraction && fraction < todFraction) addPoint(`ENR${String(index).padStart(2, "0")}`, fraction, cruiseAltitude); }
+            for (let index = 1; index <= count; index += 1) { const fraction = index / (count + 1); if (fraction > tocFraction && fraction < todFraction) addNearestFix(fraction, cruiseAltitude); }
         }
-        addPoint("TOD", todFraction, cruiseAltitude);
-        addPoint("DES1", todFraction + (1 - todFraction) * .35, Math.round(cruiseAltitude * .65 / 1000) * 1000);
-        addPoint("DES2", todFraction + (1 - todFraction) * .7, Math.round(cruiseAltitude * .3 / 1000) * 1000);
+        addPoint("TOD", todFraction, cruiseAltitude, "TOD");
+        addNearestFix(todFraction + (1 - todFraction) * .35, Math.round(cruiseAltitude * .65 / 1000) * 1000);
+        addNearestFix(todFraction + (1 - todFraction) * .7, Math.round(cruiseAltitude * .3 / 1000) * 1000);
         nodes.push({ ident: arrival, type: "DST", lat: end[0], lon: end[1], alt: 0 });
-        return { nodes, aircraft: aircraft || "", callsign: callsign || "", route: options.mode === "structured" ? "structured-great-circle" : "direct-great-circle", direction: options.direction, departureRunway: options.departureRunway, arrivalRunway: options.arrivalRunway, sid: options.sid, star: options.star, approach: options.approach, units: options.units, generatedAt: new Date().toISOString() };
+        const routeFixes = nodes.filter((node) => node.type === "FIX").map((node) => node.ident);
+        const routeName = [options.sid, ...routeFixes, options.star].filter(Boolean).join(" ") || "DCT";
+        return { nodes, aircraft: aircraft || "", callsign: callsign || "", route: routeName, routeMode: options.mode, direction: options.direction, departureRunway: options.departureRunway, arrivalRunway: options.arrivalRunway, sid: options.sid, star: options.star, approach: options.approach, units: options.units, generatedAt: new Date().toISOString() };
+    }
+
+    function getGeoFSFixes(departure, arrival) {
+        const sources = [geofs.nav, geofs.navigation, geofs.navaids, geofs.waypoints, geofs.navData, window.navData, window.navaids];
+        const fixes = [];
+        const addFix = (ident, lat, lon) => {
+            lat = Number(lat);
+            lon = Number(lon);
+            ident = String(ident || "").trim().toUpperCase();
+            if (ident && ident !== departure && ident !== arrival && Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) fixes.push({ ident, lat, lon });
+        };
+        if (geofs.nav && geofs.nav.fixes && typeof geofs.nav.fixes === "object") {
+            Object.entries(geofs.nav.fixes).forEach(([ident, coordinates]) => {
+                const point = Array.isArray(coordinates) && Array.isArray(coordinates[0]) ? coordinates[0] : coordinates;
+                if (Array.isArray(point)) addFix(ident, point[0], point[1]);
+            });
+        }
+        const visit = (value, depth = 0) => {
+            if (!value || depth > 3 || typeof value !== "object") return;
+            if (Array.isArray(value)) {
+                value.forEach((entry) => visit(entry, depth + 1));
+                return;
+            }
+            const lat = Number(value.lat ?? value.latitude);
+            const lon = Number(value.lon ?? value.lng ?? value.longitude);
+            const ident = String(value.ident ?? value.identifier ?? value.name ?? value.id ?? "").trim().toUpperCase();
+            if (ident && Number.isFinite(lat) && Number.isFinite(lon)) {
+                addFix(ident, lat, lon);
+                return;
+            }
+            Object.values(value).forEach((entry) => visit(entry, depth + 1));
+        };
+        sources.forEach((source) => visit(source));
+        return [...new Map(fixes.map((fix) => [fix.ident, fix])).values()];
+    }
+
+    function nearestRouteFix(fixes, start, end, target, usedFixes) {
+        let nearest;
+        let nearestScore = Infinity;
+        fixes.forEach((fix) => {
+            if (usedFixes.has(fix.ident)) return;
+            const distanceToTarget = greatCircleDistance([fix.lat, fix.lon], target);
+            if (distanceToTarget > 80) return;
+            const startDistance = greatCircleDistance(start, [fix.lat, fix.lon]);
+            const endDistance = greatCircleDistance([fix.lat, fix.lon], end);
+            const routeDistance = greatCircleDistance(start, end);
+            if (startDistance + endDistance > routeDistance + 120) return;
+            if (distanceToTarget < nearestScore) {
+                nearest = fix;
+                nearestScore = distanceToTarget;
+            }
+        });
+        return nearest;
     }
 
     function routeDirection(departure, arrival) {

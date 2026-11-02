@@ -28,5 +28,7 @@ The route is loaded into the GeoFS flight planner with:
 - A `TOC` waypoint at the selected cruising altitude
 - A `TOD` waypoint before descent
 - Descent steps based on the selected cruising altitude
+- Named enroute fixes taken from GeoFS navigation data at their actual coordinates when available
+- A route name built from the selected SID, enroute fix identifiers, and STAR; otherwise the route is named `DCT`
 
 Reload GeoFS after updating the userscript in Tampermonkey.
